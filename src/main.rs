@@ -85,11 +85,17 @@ impl Converter<serde_json::Value> for serde_yaml::Value {
                 } else if x.is_i64() {
                     serde_json::Value::Number(serde_json::Number::from(x.as_i64().unwrap()))
                 } else if x.is_f64() {
-                    match x.as_f64().unwrap() {
-                        f64::NAN => serde_json::Value::String(String::from(".nan")),
-                        f64::INFINITY => serde_json::Value::String(String::from(".inf")),
-                        f64::NEG_INFINITY => serde_json::Value::String(String::from("-.inf")),
-                        x => serde_json::Value::Number(serde_json::Number::from_f64(x).unwrap()),
+                    let x = x.as_f64().unwrap();
+                    if x.is_nan() {
+                        serde_json::Value::String(String::from(".nan"))
+                    } else if x.is_infinite() {
+                        if x > 0.0 {
+                            serde_json::Value::String(String::from(".inf"))
+                        } else {
+                            serde_json::Value::String(String::from("-.inf"))
+                        }
+                    } else {
+                        serde_json::Value::Number(serde_json::Number::from_f64(x).unwrap())
                     }
                 } else {
                     panic!("Cannot convert yaml to json");
@@ -101,6 +107,21 @@ impl Converter<serde_json::Value> for serde_yaml::Value {
             serde_yaml::Value::String(x) => serde_json::Value::String(x.clone()),
         }
     }
+}
+
+#[test]
+fn yaml2json() {
+    let x = serde_yaml::Value::Number(serde_yaml::Number::from(1));
+    assert_eq!(x.convert(), serde_json::Value::Number(serde_json::Number::from(1)));
+
+    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NAN));
+    assert_eq!(x.convert(), serde_json::Value::String(String::from(".nan")));
+
+    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::INFINITY));
+    assert_eq!(x.convert(), serde_json::Value::String(String::from(".inf")));
+
+    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NEG_INFINITY));
+    assert_eq!(x.convert(), serde_json::Value::String(String::from("-.inf")));
 }
 
 fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn std::error::Error>>
@@ -140,20 +161,22 @@ fn load_data() -> Result<String, String> {
         },
         Err(Error::ArgumentsError) => {
             return Err(String::from("Arguments is incorrect."));
-        },
-        _ => panic!("Never occurs")
+        }
+        _ => panic!("Never occurs"),
     }
 }
 
-fn convert<S, T> (parse: impl FnOnce(&String) -> Result<S,Error>, to_string: impl FnOnce(&T)->Result<String, Error>) 
-where
+fn convert<S, T>(
+    parse: impl FnOnce(&String) -> Result<S, Error>,
+    to_string: impl FnOnce(&T) -> Result<String, Error>,
+) where
     S: Converter<T>,
-    T: serde::ser::Serialize
-    {
+    T: serde::ser::Serialize,
+{
     std::process::exit(match load_data() {
         Ok(contents) => match parse(&contents) {
             Ok(value) => {
-                let converted= value.convert();
+                let converted = value.convert();
                 match to_string(&converted) {
                     Ok(s) => {
                         println!("{}", s);
@@ -179,10 +202,8 @@ where
 
 fn main() {
     // json_to_yaml();
-    convert(load_yaml, |x| {
-        match serde_json::to_string(x) {
-            Ok(x) => Ok(x),
-            Err(_) => Err(Error::ConvertError),
-        }
+    convert(load_yaml, |x| match serde_json::to_string_pretty(x) {
+        Ok(x) => Ok(x),
+        Err(_) => Err(Error::ConvertError),
     });
 }
