@@ -12,7 +12,10 @@ use std::iter::FromIterator;
 enum Error {
     ArgumentsError,
     InvalidData,
+    ReadInputError,
     ConvertError,
+    ConvertTypeParseError,
+    FileOpenError,
 }
 
 fn load_json(s: &String) -> Result<serde_json::Value, Error> {
@@ -112,7 +115,10 @@ impl Converter<serde_json::Value> for serde_yaml::Value {
 #[test]
 fn yaml2json() {
     let x = serde_yaml::Value::Number(serde_yaml::Number::from(1));
-    assert_eq!(x.convert(), serde_json::Value::Number(serde_json::Number::from(1)));
+    assert_eq!(
+        x.convert(),
+        serde_json::Value::Number(serde_json::Number::from(1))
+    );
 
     let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NAN));
     assert_eq!(x.convert(), serde_json::Value::String(String::from(".nan")));
@@ -121,7 +127,10 @@ fn yaml2json() {
     assert_eq!(x.convert(), serde_json::Value::String(String::from(".inf")));
 
     let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NEG_INFINITY));
-    assert_eq!(x.convert(), serde_json::Value::String(String::from("-.inf")));
+    assert_eq!(
+        x.convert(),
+        serde_json::Value::String(String::from("-.inf"))
+    );
 }
 
 fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn std::error::Error>>
@@ -133,77 +142,83 @@ where
     Ok(contents)
 }
 
-fn parse_args() -> Result<Option<String>, Error> {
+enum ConvertType {
+    Yaml2Json,
+    Json2Yaml,
+}
+
+fn convert_type(t: &str) -> Result<ConvertType, Error> {
+    if t == "y2j" {
+        Ok(ConvertType::Yaml2Json)
+    } else if t == "j2y" {
+        Ok(ConvertType::Json2Yaml)
+    } else {
+        Err(Error::ConvertTypeParseError)
+    }
+}
+
+fn parse_args() -> Result<(String, Option<String>), Error> {
     let args: Vec<String> = env::args().collect();
-    if args.len() == 1 {
-        Ok(None)
-    } else if args.len() == 2 {
-        Ok(Some(args[1].clone()))
+    if args.len() == 2 {
+        Ok((args[1].clone(), None))
+    } else if args.len() == 3 {
+        Ok((args[1].clone(), Some(args[2].clone())))
     } else {
         Err(Error::ArgumentsError)
     }
 }
 
-fn load_data() -> Result<String, String> {
-    match parse_args() {
-        Ok(None) => match read_stream(&mut std::io::stdin()) {
-            Ok(s) => Ok(s),
-            Err(_) => Err(String::from("Cannot read standard input.")),
-        },
-        Ok(Some(fname)) => match File::open(&fname) {
-            Ok(mut f) => match read_stream(&mut f) {
-                Ok(s) => Ok(s),
-                Err(_) => Err(format!("Cannot read file \"{}\".", fname)),
-            },
-            Err(_) => {
-                return Err(format!("Cannot open file \"{}\".", fname));
-            }
-        },
-        Err(Error::ArgumentsError) => {
-            return Err(String::from("Arguments is incorrect."));
-        }
-        _ => panic!("Never occurs"),
+fn input_selector(file_name: Option<String>) -> Result<Box<dyn std::io::Read>, Error> {
+    match file_name {
+        None => Ok(Box::new(std::io::stdin())),
+        Some(x) => Ok(Box::new(File::open(&x).or(Err(Error::FileOpenError))?)),
     }
 }
 
-fn convert<S, T>(
-    parse: impl FnOnce(&String) -> Result<S, Error>,
-    to_string: impl FnOnce(&T) -> Result<String, Error>,
-) where
-    S: Converter<T>,
-    T: serde::ser::Serialize,
-{
-    std::process::exit(match load_data() {
-        Ok(contents) => match parse(&contents) {
-            Ok(value) => {
-                let converted = value.convert();
-                match to_string(&converted) {
-                    Ok(s) => {
-                        println!("{}", s);
-                        0
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        1
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("{:?}", e);
-                1
-            }
-        },
-        Err(e) => {
-            eprintln!("{}", e);
-            1
+fn run() -> Result<(), Error> {
+    let (cnvt_type, input_stream) = parse_args()?;
+    let cnvt_type = convert_type(&cnvt_type).or(Err(Error::ArgumentsError))?;
+    let mut input_stream = input_selector(input_stream)?;
+    let data = read_stream(&mut input_stream).or(Err(Error::ReadInputError))?;
+
+    let s = match cnvt_type {
+        ConvertType::Yaml2Json => serde_json::to_string_pretty(&load_yaml(&data)?.convert())
+            .or(Err(Error::ConvertError))?,
+        ConvertType::Json2Yaml => {
+            serde_yaml::to_string(&load_json(&data)?.convert()).or(Err(Error::ConvertError))?
         }
-    });
+    };
+    println!("{}", s);
+
+    Ok(())
+}
+
+fn show_error(e: Error) {
+    match e {
+        Error::ArgumentsError => {
+            eprintln!("Invalid arguments.");
+        }
+        Error::ConvertError => {
+            eprintln!("Cannot convert format.");
+        }
+        Error::ConvertTypeParseError => {
+            eprintln!("Invalid convert type.");
+        }
+        Error::FileOpenError => {
+            eprintln!("Cannot open file.");
+        }
+        Error::InvalidData => {
+            eprintln!("Invalid data format.");
+        }
+        Error::ReadInputError => {
+            eprintln!("Cannot read data.");
+        }
+    }
 }
 
 fn main() {
-    // json_to_yaml();
-    convert(load_yaml, |x| match serde_json::to_string_pretty(x) {
-        Ok(x) => Ok(x),
-        Err(_) => Err(Error::ConvertError),
-    });
+    match run() {
+        Ok(_) => (),
+        Err(e) => show_error(e),
+    }
 }
