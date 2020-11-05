@@ -144,16 +144,18 @@ where
 
 enum ConvertType {
     Yaml2Json,
+    Yaml2JsonPretty,
     Json2Yaml,
+    Json2JsonPretty,
 }
 
 fn convert_type(t: &str) -> Result<ConvertType, Error> {
-    if t == "y2j" {
-        Ok(ConvertType::Yaml2Json)
-    } else if t == "j2y" {
-        Ok(ConvertType::Json2Yaml)
-    } else {
-        Err(Error::ConvertTypeParseError)
+    match t {
+        "y2j" => Ok(ConvertType::Yaml2Json),
+        "y2jp" => Ok(ConvertType::Yaml2JsonPretty),
+        "j2y" => Ok(ConvertType::Json2Yaml),
+        "j2jp" => Ok(ConvertType::Json2JsonPretty),
+        _ => Err(Error::ConvertTypeParseError),
     }
 }
 
@@ -182,11 +184,16 @@ fn run() -> Result<(), Error> {
     let data = read_stream(&mut input_stream).or(Err(Error::ReadInputError))?;
 
     let s = match cnvt_type {
-        ConvertType::Yaml2Json => serde_json::to_string_pretty(&load_yaml(&data)?.convert())
+        ConvertType::Yaml2Json => {
+            serde_json::to_string(&load_yaml(&data)?.convert()).or(Err(Error::ConvertError))?
+        }
+        ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?.convert())
             .or(Err(Error::ConvertError))?,
         ConvertType::Json2Yaml => {
             serde_yaml::to_string(&load_json(&data)?.convert()).or(Err(Error::ConvertError))?
         }
+        ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?.convert())
+            .or(Err(Error::ConvertError))?,
     };
     println!("{}", s);
 
