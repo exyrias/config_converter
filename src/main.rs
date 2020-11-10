@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate clap;
+
 mod converter {
     extern crate serde;
     extern crate serde_derive;
@@ -158,7 +161,7 @@ mod program {
         ) -> Result<Box<dyn std::io::Read>, Box<dyn Error>> {
             match file_name {
                 None => Ok(Box::new(std::io::stdin())),
-                Some(x) => Ok(Box::new(File::open(&x)?)),
+                Some(x) => Ok(Box::new(File::open(x)?)),
             }
         }
 
@@ -173,48 +176,44 @@ mod program {
     }
 
     use crate::converter::*;
-    use std::env;
+    use clap::{App, AppSettings, Arg};
     use std::error::Error;
 
-    #[derive(Debug)]
-    enum RunError {
-        ArgumentsError,
-        ConvertTypeParseError,
-    }
-    impl std::fmt::Display for RunError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-            match *self {
-                Self::ArgumentsError => f.write_str("Invalid arguments"),
-                Self::ConvertTypeParseError => f.write_str("Invalid convert type"),
-            }
-        }
-    }
-    impl Error for RunError {}
-
-    fn parse_args() -> Result<(String, Option<String>), Box<dyn Error>> {
-        let args: Vec<String> = env::args().collect();
-        if args.len() == 2 {
-            Ok((args[1].clone(), None))
-        } else if args.len() == 3 {
-            Ok((args[1].clone(), Some(args[2].clone())))
-        } else {
-            Err(Box::new(RunError::ArgumentsError))
-        }
+    fn build_cli() -> App<'static, 'static> {
+        app_from_crate!()
+            .setting(AppSettings::DeriveDisplayOrder)
+            .arg(
+                Arg::with_name("CONVERT_TYPE")
+                    .possible_values(&["y2j", "y2jp", "j2y", "j2jp"])
+                    .required(true),
+            )
+            .arg_from_usage("[FILENAME]")
     }
 
-    fn convert_type(t: &str) -> Result<ConvertType, Box<dyn std::error::Error>> {
+    fn convert_type(t: &str) -> ConvertType {
         match t {
-            "y2j" => Ok(ConvertType::Yaml2Json),
-            "y2jp" => Ok(ConvertType::Yaml2JsonPretty),
-            "j2y" => Ok(ConvertType::Json2Yaml),
-            "j2jp" => Ok(ConvertType::Json2JsonPretty),
-            _ => Err(Box::new(RunError::ConvertTypeParseError)),
+            "y2j" => ConvertType::Yaml2Json,
+            "y2jp" => ConvertType::Yaml2JsonPretty,
+            "j2y" => ConvertType::Json2Yaml,
+            "j2jp" => ConvertType::Json2JsonPretty,
+            _ => panic!("Unknown convert type"),
+        }
+    }
+
+    fn parse_args() -> Result<(ConvertType, Option<String>), Box<dyn Error>> {
+        let matches = build_cli().get_matches_safe()?;
+
+        let cnvt_type = convert_type(matches.value_of("CONVERT_TYPE").unwrap());
+
+        if let Some(filename) = matches.value_of("FILENAME") {
+            Ok((cnvt_type, Some(String::from(filename))))
+        } else {
+            Ok((cnvt_type, None))
         }
     }
 
     fn convert() -> Result<String, Box<dyn Error>> {
         let (cnvt_type, input_stream) = parse_args()?;
-        let cnvt_type = convert_type(&cnvt_type)?;
         let mut input_stream = read_utils::input_selector(input_stream)?;
         let data = read_utils::read_stream(&mut input_stream)?;
         let s = convert_string(cnvt_type, &data)?;
