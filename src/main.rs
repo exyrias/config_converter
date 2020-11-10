@@ -1,226 +1,223 @@
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
-extern crate serde_yaml;
-extern crate toml;
+mod converter {
+    extern crate serde;
+    extern crate serde_derive;
+    extern crate serde_json;
+    extern crate serde_yaml;
+    extern crate toml;
 
-use std::env;
-use std::fs::File;
-use std::iter::FromIterator;
+    use std::iter::FromIterator;
 
-#[derive(Debug)]
-enum Error {
-    ArgumentsError,
-    InvalidData,
-    ReadInputError,
-    ConvertError,
-    ConvertTypeParseError,
-    FileOpenError,
-}
-
-fn load_json(s: &String) -> Result<serde_json::Value, Error> {
-    match serde_json::from_str(s) {
-        Ok(dat) => Ok(dat),
-        Err(_) => Err(Error::InvalidData),
-    }
-}
-
-trait Converter<T> {
-    fn convert(&self) -> T;
-}
-impl Converter<serde_yaml::Value> for serde_json::Value {
-    fn convert(&self) -> serde_yaml::Value {
-        match self {
-            serde_json::Value::Array(x) => {
-                serde_yaml::Value::Sequence(x.iter().map(|v| v.convert()).collect())
-            }
-            serde_json::Value::Bool(x) => serde_yaml::Value::Bool(*x),
-            serde_json::Value::Null => serde_yaml::Value::Null,
-            serde_json::Value::Number(x) => {
-                let num = if x.is_u64() {
-                    serde_yaml::Number::from(x.as_u64().unwrap())
-                } else if x.is_i64() {
-                    serde_yaml::Number::from(x.as_i64().unwrap())
-                } else if x.is_f64() {
-                    serde_yaml::Number::from(x.as_f64().unwrap())
-                } else {
-                    panic!("Error: cannot covert json to yaml");
-                };
-                serde_yaml::Value::Number(num)
-            }
-            serde_json::Value::Object(x) => {
-                let iter = x
-                    .into_iter()
-                    .map(|(k, v)| (serde_yaml::Value::String(k.clone()), v.convert()));
-                serde_yaml::Value::Mapping(serde_yaml::Mapping::from_iter(iter))
-            }
-            serde_json::Value::String(x) => serde_yaml::Value::String(x.clone()),
+    pub fn load_json(s: &String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        match serde_json::from_str(s) {
+            Ok(dat) => Ok(dat),
+            Err(e) => Err(Box::new(e)),
         }
     }
-}
 
-fn load_yaml(s: &String) -> Result<serde_yaml::Value, Error> {
-    match serde_yaml::from_str(s) {
-        Ok(dat) => Ok(dat),
-        Err(_) => Err(Error::InvalidData),
+    trait Converter<T> {
+        fn convert(&self) -> T;
     }
-}
-
-impl Converter<serde_json::Value> for serde_yaml::Value {
-    fn convert(&self) -> serde_json::Value {
-        match self {
-            serde_yaml::Value::Bool(x) => serde_json::Value::Bool(*x),
-            serde_yaml::Value::Mapping(x) => {
-                serde_json::Value::Object(serde_json::Map::from_iter(x.iter().map(|(k, v)| {
-                    let k = match k {
-                        serde_yaml::Value::String(k) => k.clone(),
-                        serde_yaml::Value::Number(x) => x.to_string(),
-                        serde_yaml::Value::Bool(k) => k.to_string(),
-                        _ => panic!("Cannot convert yaml to json"),
+    impl Converter<serde_yaml::Value> for serde_json::Value {
+        fn convert(&self) -> serde_yaml::Value {
+            match self {
+                serde_json::Value::Array(x) => {
+                    serde_yaml::Value::Sequence(x.iter().map(|v| v.convert()).collect())
+                }
+                serde_json::Value::Bool(x) => serde_yaml::Value::Bool(*x),
+                serde_json::Value::Null => serde_yaml::Value::Null,
+                serde_json::Value::Number(x) => {
+                    let num = if x.is_u64() {
+                        serde_yaml::Number::from(x.as_u64().unwrap())
+                    } else if x.is_i64() {
+                        serde_yaml::Number::from(x.as_i64().unwrap())
+                    } else if x.is_f64() {
+                        serde_yaml::Number::from(x.as_f64().unwrap())
+                    } else {
+                        panic!("Error: cannot covert json to yaml");
                     };
-                    (k, v.convert())
-                })))
+                    serde_yaml::Value::Number(num)
+                }
+                serde_json::Value::Object(x) => {
+                    let iter = x
+                        .into_iter()
+                        .map(|(k, v)| (serde_yaml::Value::String(k.clone()), v.convert()));
+                    serde_yaml::Value::Mapping(serde_yaml::Mapping::from_iter(iter))
+                }
+                serde_json::Value::String(x) => serde_yaml::Value::String(x.clone()),
             }
-            serde_yaml::Value::Null => serde_json::Value::Null,
-            serde_yaml::Value::Number(x) => {
-                if x.is_u64() {
-                    serde_json::Value::Number(serde_json::Number::from(x.as_u64().unwrap()))
-                } else if x.is_i64() {
-                    serde_json::Value::Number(serde_json::Number::from(x.as_i64().unwrap()))
-                } else if x.is_f64() {
-                    let x = x.as_f64().unwrap();
-                    if x.is_nan() {
-                        serde_json::Value::String(String::from(".nan"))
-                    } else if x.is_infinite() {
-                        if x > 0.0 {
-                            serde_json::Value::String(String::from(".inf"))
+        }
+    }
+
+    pub fn load_yaml(s: &String) -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
+        match serde_yaml::from_str(s) {
+            Ok(dat) => Ok(dat),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    impl Converter<serde_json::Value> for serde_yaml::Value {
+        fn convert(&self) -> serde_json::Value {
+            match self {
+                serde_yaml::Value::Bool(x) => serde_json::Value::Bool(*x),
+                serde_yaml::Value::Mapping(x) => {
+                    serde_json::Value::Object(serde_json::Map::from_iter(x.iter().map(|(k, v)| {
+                        let k = match k {
+                            serde_yaml::Value::String(k) => k.clone(),
+                            serde_yaml::Value::Number(x) => x.to_string(),
+                            serde_yaml::Value::Bool(k) => k.to_string(),
+                            _ => panic!("Cannot convert yaml to json"),
+                        };
+                        (k, v.convert())
+                    })))
+                }
+                serde_yaml::Value::Null => serde_json::Value::Null,
+                serde_yaml::Value::Number(x) => {
+                    if x.is_u64() {
+                        serde_json::Value::Number(serde_json::Number::from(x.as_u64().unwrap()))
+                    } else if x.is_i64() {
+                        serde_json::Value::Number(serde_json::Number::from(x.as_i64().unwrap()))
+                    } else if x.is_f64() {
+                        let x = x.as_f64().unwrap();
+                        if x.is_nan() {
+                            serde_json::Value::String(String::from(".nan"))
+                        } else if x.is_infinite() {
+                            if x > 0.0 {
+                                serde_json::Value::String(String::from(".inf"))
+                            } else {
+                                serde_json::Value::String(String::from("-.inf"))
+                            }
                         } else {
-                            serde_json::Value::String(String::from("-.inf"))
+                            serde_json::Value::Number(serde_json::Number::from_f64(x).unwrap())
                         }
                     } else {
-                        serde_json::Value::Number(serde_json::Number::from_f64(x).unwrap())
+                        panic!("Cannot convert yaml to json");
                     }
-                } else {
-                    panic!("Cannot convert yaml to json");
                 }
+                serde_yaml::Value::Sequence(x) => {
+                    serde_json::Value::Array(x.iter().map(|x| x.convert()).collect())
+                }
+                serde_yaml::Value::String(x) => serde_json::Value::String(x.clone()),
             }
-            serde_yaml::Value::Sequence(x) => {
-                serde_json::Value::Array(x.iter().map(|x| x.convert()).collect())
-            }
-            serde_yaml::Value::String(x) => serde_json::Value::String(x.clone()),
         }
+    }
+
+    #[test]
+    fn yaml2json() {
+        let x = serde_yaml::Value::Number(serde_yaml::Number::from(1));
+        assert_eq!(
+            x.convert(),
+            serde_json::Value::Number(serde_json::Number::from(1))
+        );
+
+        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NAN));
+        assert_eq!(x.convert(), serde_json::Value::String(String::from(".nan")));
+
+        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::INFINITY));
+        assert_eq!(x.convert(), serde_json::Value::String(String::from(".inf")));
+
+        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NEG_INFINITY));
+        assert_eq!(
+            x.convert(),
+            serde_json::Value::String(String::from("-.inf"))
+        );
+    }
+
+    pub fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn std::error::Error>>
+    where
+        R: std::io::Read,
+    {
+        let mut contents = String::new();
+        let _size = r.read_to_string(&mut contents)?;
+        Ok(contents)
+    }
+
+    pub enum ConvertType {
+        Yaml2Json,
+        Yaml2JsonPretty,
+        Json2Yaml,
+        Json2JsonPretty,
+    }
+
+    pub fn convert(cnvt_type: ConvertType, data: &String) -> Result<String, Box<dyn std::error::Error>> {
+        let s = match cnvt_type {
+            ConvertType::Yaml2Json => {
+                serde_json::to_string(&load_yaml(&data)?.convert())?
+            }
+            ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?.convert())?,
+            ConvertType::Json2Yaml => {
+                serde_yaml::to_string(&load_json(&data)?.convert())?
+            }
+            ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?.convert())?,
+        };
+        Ok(s)
     }
 }
 
-#[test]
-fn yaml2json() {
-    let x = serde_yaml::Value::Number(serde_yaml::Number::from(1));
-    assert_eq!(
-        x.convert(),
-        serde_json::Value::Number(serde_json::Number::from(1))
-    );
+use converter::*;
+use std::error::Error;
+use std::env;
+use std::fs::File;
 
-    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NAN));
-    assert_eq!(x.convert(), serde_json::Value::String(String::from(".nan")));
+#[derive(Debug)]
+enum RunError {
+    ArgumentsError,
+    FileOpenError,
+    ConvertTypeParseError,
+}
+impl std::fmt::Display for RunError {
 
-    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::INFINITY));
-    assert_eq!(x.convert(), serde_json::Value::String(String::from(".inf")));
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> { 
+        match *self {
+            Self::ArgumentsError => f.write_str("Invalid arguments"),
+            Self::FileOpenError => f.write_str("Cannot open file"),
+            Self::ConvertTypeParseError => f.write_str("Invalid convert type"),
+        }
+     }
+}
+impl Error for RunError {
 
-    let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NEG_INFINITY));
-    assert_eq!(
-        x.convert(),
-        serde_json::Value::String(String::from("-.inf"))
-    );
 }
 
-fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn std::error::Error>>
-where
-    R: std::io::Read,
-{
-    let mut contents = String::new();
-    let _size = r.read_to_string(&mut contents)?;
-    Ok(contents)
-}
-
-enum ConvertType {
-    Yaml2Json,
-    Yaml2JsonPretty,
-    Json2Yaml,
-    Json2JsonPretty,
-}
-
-fn convert_type(t: &str) -> Result<ConvertType, Error> {
+fn convert_type(t: &str) -> Result<ConvertType, Box<dyn std::error::Error>> {
     match t {
         "y2j" => Ok(ConvertType::Yaml2Json),
         "y2jp" => Ok(ConvertType::Yaml2JsonPretty),
         "j2y" => Ok(ConvertType::Json2Yaml),
         "j2jp" => Ok(ConvertType::Json2JsonPretty),
-        _ => Err(Error::ConvertTypeParseError),
+        _ => Err(Box::new(RunError::ConvertTypeParseError)),
     }
 }
 
-fn parse_args() -> Result<(String, Option<String>), Error> {
+fn parse_args() -> Result<(String, Option<String>), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() == 2 {
         Ok((args[1].clone(), None))
     } else if args.len() == 3 {
         Ok((args[1].clone(), Some(args[2].clone())))
     } else {
-        Err(Error::ArgumentsError)
+        Err(Box::new(RunError::ArgumentsError))
     }
 }
 
-fn input_selector(file_name: Option<String>) -> Result<Box<dyn std::io::Read>, Error> {
+fn input_selector(file_name: Option<String>) -> Result<Box<dyn std::io::Read>, Box<dyn Error>> {
     match file_name {
         None => Ok(Box::new(std::io::stdin())),
-        Some(x) => Ok(Box::new(File::open(&x).or(Err(Error::FileOpenError))?)),
+        Some(x) => Ok(Box::new(File::open(&x)?)),
     }
 }
 
-fn run() -> Result<(), Error> {
+fn run() -> Result<(), Box<dyn Error>> {
     let (cnvt_type, input_stream) = parse_args()?;
-    let cnvt_type = convert_type(&cnvt_type).or(Err(Error::ArgumentsError))?;
+    let cnvt_type = convert_type(&cnvt_type)?;
     let mut input_stream = input_selector(input_stream)?;
-    let data = read_stream(&mut input_stream).or(Err(Error::ReadInputError))?;
-
-    let s = match cnvt_type {
-        ConvertType::Yaml2Json => {
-            serde_json::to_string(&load_yaml(&data)?.convert()).or(Err(Error::ConvertError))?
-        }
-        ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?.convert())
-            .or(Err(Error::ConvertError))?,
-        ConvertType::Json2Yaml => {
-            serde_yaml::to_string(&load_json(&data)?.convert()).or(Err(Error::ConvertError))?
-        }
-        ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?.convert())
-            .or(Err(Error::ConvertError))?,
-    };
+    let data = read_stream(&mut input_stream)?;
+    let s = convert(cnvt_type, &data)?;
     println!("{}", s);
-
     Ok(())
 }
 
-fn show_error(e: Error) {
-    match e {
-        Error::ArgumentsError => {
-            eprintln!("Invalid arguments.");
-        }
-        Error::ConvertError => {
-            eprintln!("Cannot convert format.");
-        }
-        Error::ConvertTypeParseError => {
-            eprintln!("Invalid convert type.");
-        }
-        Error::FileOpenError => {
-            eprintln!("Cannot open file.");
-        }
-        Error::InvalidData => {
-            eprintln!("Invalid data format.");
-        }
-        Error::ReadInputError => {
-            eprintln!("Cannot read data.");
-        }
-    }
+fn show_error(e: Box<dyn Error>) {
+    eprintln!("{}", e);
 }
 
 fn main() {
