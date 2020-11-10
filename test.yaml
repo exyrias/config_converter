@@ -6,7 +6,7 @@
 - abc
 - a: df
   b: 3
-- - a: b
+- - a: [ 1, "a" ]
   - c: d
     e: f
   - bff
