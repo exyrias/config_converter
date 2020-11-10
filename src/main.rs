@@ -7,6 +7,10 @@ mod converter {
 
     use std::iter::FromIterator;
 
+    trait Converter<T> {
+        fn convert(&self) -> T;
+    }
+
     pub fn load_json(s: &String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         match serde_json::from_str(s) {
             Ok(dat) => Ok(dat),
@@ -14,9 +18,13 @@ mod converter {
         }
     }
 
-    trait Converter<T> {
-        fn convert(&self) -> T;
+    pub fn load_yaml(s: &String) -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
+        match serde_yaml::from_str(s) {
+            Ok(dat) => Ok(dat),
+            Err(e) => Err(Box::new(e)),
+        }
     }
+
     impl Converter<serde_yaml::Value> for serde_json::Value {
         fn convert(&self) -> serde_yaml::Value {
             match self {
@@ -45,13 +53,6 @@ mod converter {
                 }
                 serde_json::Value::String(x) => serde_yaml::Value::String(x.clone()),
             }
-        }
-    }
-
-    pub fn load_yaml(s: &String) -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
-        match serde_yaml::from_str(s) {
-            Ok(dat) => Ok(dat),
-            Err(e) => Err(Box::new(e)),
         }
     }
 
@@ -122,15 +123,6 @@ mod converter {
         );
     }
 
-    pub fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn std::error::Error>>
-    where
-        R: std::io::Read,
-    {
-        let mut contents = String::new();
-        let _size = r.read_to_string(&mut contents)?;
-        Ok(contents)
-    }
-
     pub enum ConvertType {
         Yaml2Json,
         Yaml2JsonPretty,
@@ -138,91 +130,113 @@ mod converter {
         Json2JsonPretty,
     }
 
-    pub fn convert(cnvt_type: ConvertType, data: &String) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn convert_string(
+        cnvt_type: ConvertType,
+        data: &String,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let s = match cnvt_type {
-            ConvertType::Yaml2Json => {
-                serde_json::to_string(&load_yaml(&data)?.convert())?
+            ConvertType::Yaml2Json => serde_json::to_string(&load_yaml(&data)?.convert())?,
+            ConvertType::Yaml2JsonPretty => {
+                serde_json::to_string_pretty(&load_yaml(&data)?.convert())?
             }
-            ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?.convert())?,
-            ConvertType::Json2Yaml => {
-                serde_yaml::to_string(&load_json(&data)?.convert())?
+            ConvertType::Json2Yaml => serde_yaml::to_string(&load_json(&data)?.convert())?,
+            ConvertType::Json2JsonPretty => {
+                serde_json::to_string_pretty(&load_json(&data)?.convert())?
             }
-            ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?.convert())?,
         };
         Ok(s)
     }
 }
 
-use converter::*;
-use std::error::Error;
-use std::env;
-use std::fs::File;
+mod program {
+    mod read_utils {
+        use std::error::Error;
+        use std::fs::File;
 
-#[derive(Debug)]
-enum RunError {
-    ArgumentsError,
-    FileOpenError,
-    ConvertTypeParseError,
-}
-impl std::fmt::Display for RunError {
-
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> { 
-        match *self {
-            Self::ArgumentsError => f.write_str("Invalid arguments"),
-            Self::FileOpenError => f.write_str("Cannot open file"),
-            Self::ConvertTypeParseError => f.write_str("Invalid convert type"),
+        pub fn input_selector(
+            file_name: Option<String>,
+        ) -> Result<Box<dyn std::io::Read>, Box<dyn Error>> {
+            match file_name {
+                None => Ok(Box::new(std::io::stdin())),
+                Some(x) => Ok(Box::new(File::open(&x)?)),
+            }
         }
-     }
-}
-impl Error for RunError {
 
-}
-
-fn convert_type(t: &str) -> Result<ConvertType, Box<dyn std::error::Error>> {
-    match t {
-        "y2j" => Ok(ConvertType::Yaml2Json),
-        "y2jp" => Ok(ConvertType::Yaml2JsonPretty),
-        "j2y" => Ok(ConvertType::Json2Yaml),
-        "j2jp" => Ok(ConvertType::Json2JsonPretty),
-        _ => Err(Box::new(RunError::ConvertTypeParseError)),
+        pub fn read_stream<R>(r: &mut R) -> Result<String, Box<dyn Error>>
+        where
+            R: std::io::Read,
+        {
+            let mut contents = String::new();
+            let _size = r.read_to_string(&mut contents)?;
+            Ok(contents)
+        }
     }
-}
 
-fn parse_args() -> Result<(String, Option<String>), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() == 2 {
-        Ok((args[1].clone(), None))
-    } else if args.len() == 3 {
-        Ok((args[1].clone(), Some(args[2].clone())))
-    } else {
-        Err(Box::new(RunError::ArgumentsError))
+    use crate::converter::*;
+    use std::env;
+    use std::error::Error;
+
+    #[derive(Debug)]
+    enum RunError {
+        ArgumentsError,
+        ConvertTypeParseError,
     }
-}
-
-fn input_selector(file_name: Option<String>) -> Result<Box<dyn std::io::Read>, Box<dyn Error>> {
-    match file_name {
-        None => Ok(Box::new(std::io::stdin())),
-        Some(x) => Ok(Box::new(File::open(&x)?)),
+    impl std::fmt::Display for RunError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+            match *self {
+                Self::ArgumentsError => f.write_str("Invalid arguments"),
+                Self::ConvertTypeParseError => f.write_str("Invalid convert type"),
+            }
+        }
     }
-}
+    impl Error for RunError {}
 
-fn run() -> Result<(), Box<dyn Error>> {
-    let (cnvt_type, input_stream) = parse_args()?;
-    let cnvt_type = convert_type(&cnvt_type)?;
-    let mut input_stream = input_selector(input_stream)?;
-    let data = read_stream(&mut input_stream)?;
-    let s = convert(cnvt_type, &data)?;
-    println!("{}", s);
-    Ok(())
-}
+    fn parse_args() -> Result<(String, Option<String>), Box<dyn Error>> {
+        let args: Vec<String> = env::args().collect();
+        if args.len() == 2 {
+            Ok((args[1].clone(), None))
+        } else if args.len() == 3 {
+            Ok((args[1].clone(), Some(args[2].clone())))
+        } else {
+            Err(Box::new(RunError::ArgumentsError))
+        }
+    }
 
-fn show_error(e: Box<dyn Error>) {
-    eprintln!("{}", e);
+    fn convert_type(t: &str) -> Result<ConvertType, Box<dyn std::error::Error>> {
+        match t {
+            "y2j" => Ok(ConvertType::Yaml2Json),
+            "y2jp" => Ok(ConvertType::Yaml2JsonPretty),
+            "j2y" => Ok(ConvertType::Json2Yaml),
+            "j2jp" => Ok(ConvertType::Json2JsonPretty),
+            _ => Err(Box::new(RunError::ConvertTypeParseError)),
+        }
+    }
+
+    fn convert() -> Result<String, Box<dyn Error>> {
+        let (cnvt_type, input_stream) = parse_args()?;
+        let cnvt_type = convert_type(&cnvt_type)?;
+        let mut input_stream = read_utils::input_selector(input_stream)?;
+        let data = read_utils::read_stream(&mut input_stream)?;
+        let s = convert_string(cnvt_type, &data)?;
+        Ok(s)
+    }
+
+    fn show_converted(s: String) {
+        println!("{}", s);
+    }
+
+    fn show_error(e: Box<dyn Error>) {
+        eprintln!("{}", e);
+    }
+
+    pub fn run() {
+        match convert() {
+            Ok(s) => show_converted(s),
+            Err(e) => show_error(e),
+        }
+    }
 }
 
 fn main() {
-    match run() {
-        Ok(_) => (),
-        Err(e) => show_error(e),
-    }
+    program::run();
 }
