@@ -8,12 +8,6 @@ mod converter {
     extern crate serde_yaml;
     extern crate toml;
 
-    use std::iter::FromIterator;
-
-    trait Converter<T> {
-        fn convert(&self) -> T;
-    }
-
     pub fn load_json(s: &String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         match serde_json::from_str(s) {
             Ok(dat) => Ok(dat),
@@ -28,104 +22,6 @@ mod converter {
         }
     }
 
-    impl Converter<serde_yaml::Value> for serde_json::Value {
-        fn convert(&self) -> serde_yaml::Value {
-            match self {
-                serde_json::Value::Array(x) => {
-                    serde_yaml::Value::Sequence(x.iter().map(|v| v.convert()).collect())
-                }
-                serde_json::Value::Bool(x) => serde_yaml::Value::Bool(*x),
-                serde_json::Value::Null => serde_yaml::Value::Null,
-                serde_json::Value::Number(x) => {
-                    let num = if x.is_u64() {
-                        serde_yaml::Number::from(x.as_u64().unwrap())
-                    } else if x.is_i64() {
-                        serde_yaml::Number::from(x.as_i64().unwrap())
-                    } else if x.is_f64() {
-                        serde_yaml::Number::from(x.as_f64().unwrap())
-                    } else {
-                        panic!("Error: cannot covert json to yaml");
-                    };
-                    serde_yaml::Value::Number(num)
-                }
-                serde_json::Value::Object(x) => {
-                    let iter = x
-                        .into_iter()
-                        .map(|(k, v)| (serde_yaml::Value::String(k.clone()), v.convert()));
-                    serde_yaml::Value::Mapping(serde_yaml::Mapping::from_iter(iter))
-                }
-                serde_json::Value::String(x) => serde_yaml::Value::String(x.clone()),
-            }
-        }
-    }
-
-    impl Converter<serde_json::Value> for serde_yaml::Value {
-        fn convert(&self) -> serde_json::Value {
-            match self {
-                serde_yaml::Value::Bool(x) => serde_json::Value::Bool(*x),
-                serde_yaml::Value::Mapping(x) => {
-                    serde_json::Value::Object(serde_json::Map::from_iter(x.iter().map(|(k, v)| {
-                        let k = match k {
-                            serde_yaml::Value::String(k) => k.clone(),
-                            serde_yaml::Value::Number(x) => x.to_string(),
-                            serde_yaml::Value::Bool(k) => k.to_string(),
-                            _ => panic!("Cannot convert yaml to json"),
-                        };
-                        (k, v.convert())
-                    })))
-                }
-                serde_yaml::Value::Null => serde_json::Value::Null,
-                serde_yaml::Value::Number(x) => {
-                    if x.is_u64() {
-                        serde_json::Value::Number(serde_json::Number::from(x.as_u64().unwrap()))
-                    } else if x.is_i64() {
-                        serde_json::Value::Number(serde_json::Number::from(x.as_i64().unwrap()))
-                    } else if x.is_f64() {
-                        let x = x.as_f64().unwrap();
-                        if x.is_nan() {
-                            serde_json::Value::String(String::from(".nan"))
-                        } else if x.is_infinite() {
-                            if x > 0.0 {
-                                serde_json::Value::String(String::from(".inf"))
-                            } else {
-                                serde_json::Value::String(String::from("-.inf"))
-                            }
-                        } else {
-                            serde_json::Value::Number(serde_json::Number::from_f64(x).unwrap())
-                        }
-                    } else {
-                        panic!("Cannot convert yaml to json");
-                    }
-                }
-                serde_yaml::Value::Sequence(x) => {
-                    serde_json::Value::Array(x.iter().map(|x| x.convert()).collect())
-                }
-                serde_yaml::Value::String(x) => serde_json::Value::String(x.clone()),
-            }
-        }
-    }
-
-    #[test]
-    fn yaml2json() {
-        let x = serde_yaml::Value::Number(serde_yaml::Number::from(1));
-        assert_eq!(
-            x.convert(),
-            serde_json::Value::Number(serde_json::Number::from(1))
-        );
-
-        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NAN));
-        assert_eq!(x.convert(), serde_json::Value::String(String::from(".nan")));
-
-        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::INFINITY));
-        assert_eq!(x.convert(), serde_json::Value::String(String::from(".inf")));
-
-        let x = serde_yaml::Value::Number(serde_yaml::Number::from(f64::NEG_INFINITY));
-        assert_eq!(
-            x.convert(),
-            serde_json::Value::String(String::from("-.inf"))
-        );
-    }
-
     pub enum ConvertType {
         Yaml2Json,
         Yaml2JsonPretty,
@@ -138,14 +34,10 @@ mod converter {
         data: &String,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let s = match cnvt_type {
-            ConvertType::Yaml2Json => serde_json::to_string(&load_yaml(&data)?.convert())?,
-            ConvertType::Yaml2JsonPretty => {
-                serde_json::to_string_pretty(&load_yaml(&data)?.convert())?
-            }
-            ConvertType::Json2Yaml => serde_yaml::to_string(&load_json(&data)?.convert())?,
-            ConvertType::Json2JsonPretty => {
-                serde_json::to_string_pretty(&load_json(&data)?.convert())?
-            }
+            ConvertType::Yaml2Json => serde_json::to_string(&load_yaml(&data)?)?,
+            ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?)?,
+            ConvertType::Json2Yaml => serde_yaml::to_string(&load_json(&data)?)?,
+            ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?)?,
         };
         Ok(s)
     }
