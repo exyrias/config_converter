@@ -7,37 +7,82 @@ mod converter {
     extern crate serde_json;
     extern crate serde_yaml;
     extern crate toml;
+    use serde::{Serialize, Serializer};
 
-    pub fn load_json(s: &String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    enum Value {
+        Yaml(serde_yaml::Value),
+        Json(serde_json::Value),
+        Toml(toml::Value),
+    }
+
+    impl Serialize for Value {
+        fn serialize<S>(
+            &self,
+            serializer: S,
+        ) -> std::result::Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+        where
+            S: Serializer,
+        {
+            match self {
+                Value::Yaml(v) => v.serialize(serializer),
+                Value::Json(v) => v.serialize(serializer),
+                Value::Toml(v) => v.serialize(serializer),
+            }
+        }
+    }
+
+    fn load_json(s: &String) -> Result<Value, Box<dyn std::error::Error>> {
         match serde_json::from_str(s) {
-            Ok(dat) => Ok(dat),
+            Ok(dat) => Ok(Value::Json(dat)),
             Err(e) => Err(Box::new(e)),
         }
     }
 
-    pub fn load_yaml(s: &String) -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
+    fn load_yaml(s: &String) -> Result<Value, Box<dyn std::error::Error>> {
         match serde_yaml::from_str(s) {
-            Ok(dat) => Ok(dat),
+            Ok(dat) => Ok(Value::Yaml(dat)),
             Err(e) => Err(Box::new(e)),
         }
     }
 
-    pub enum ConvertType {
-        Yaml2Json,
-        Yaml2JsonPretty,
-        Json2Yaml,
-        Json2JsonPretty,
+    fn load_toml(s: &String) -> Result<Value, Box<dyn std::error::Error>> {
+        match toml::from_str(s) {
+            Ok(dat) => Ok(Value::Toml(dat)),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    pub enum FileType {
+        Yaml,
+        Json,
+        Toml,
+    }
+    pub struct ConvertType {
+        from: FileType,
+        to: FileType,
+        prettify: bool,
+    }
+    impl ConvertType {
+        pub fn new(from: FileType, to: FileType, prettify: bool) -> Self {
+            Self { from, to, prettify }
+        }
     }
 
     pub fn convert_string(
         cnvt_type: ConvertType,
         data: &String,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let s = match cnvt_type {
-            ConvertType::Yaml2Json => serde_json::to_string(&load_yaml(&data)?)?,
-            ConvertType::Yaml2JsonPretty => serde_json::to_string_pretty(&load_yaml(&data)?)?,
-            ConvertType::Json2Yaml => serde_yaml::to_string(&load_json(&data)?)?,
-            ConvertType::Json2JsonPretty => serde_json::to_string_pretty(&load_json(&data)?)?,
+        let v = match cnvt_type.from {
+            FileType::Yaml => load_yaml(&data)?,
+            FileType::Json => load_json(&data)?,
+            FileType::Toml => load_toml(&data)?,
+        };
+        let s = match (cnvt_type.to, cnvt_type.prettify) {
+            (FileType::Yaml, _) => serde_yaml::to_string(&v)?,
+            (FileType::Json, false) => serde_json::to_string(&v)?,
+            (FileType::Json, true) => serde_json::to_string_pretty(&v)?,
+            (FileType::Toml, false) => toml::to_string(&v)?,
+            (FileType::Toml, true) => toml::to_string_pretty(&v)?,
         };
         Ok(s)
     }
@@ -70,13 +115,18 @@ mod program {
     use crate::converter::*;
     use clap::{App, AppSettings, Arg};
     use std::error::Error;
+    use FileType::*;
 
     fn build_cli() -> App<'static, 'static> {
+        let convert_types = [
+            "y2j", "y2jp", "y2t", "y2tp", "j2y", "j2jp", "j2t", "j2tp", "t2y", "t2j", "t2jp",
+            "t2tp",
+        ];
         app_from_crate!()
             .setting(AppSettings::DeriveDisplayOrder)
             .arg(
                 Arg::with_name("CONVERT_TYPE")
-                    .possible_values(&["y2j", "y2jp", "j2y", "j2jp"])
+                    .possible_values(&convert_types)
                     .required(true),
             )
             .arg_from_usage("[FILENAME]")
@@ -84,10 +134,18 @@ mod program {
 
     fn convert_type(t: &str) -> ConvertType {
         match t {
-            "y2j" => ConvertType::Yaml2Json,
-            "y2jp" => ConvertType::Yaml2JsonPretty,
-            "j2y" => ConvertType::Json2Yaml,
-            "j2jp" => ConvertType::Json2JsonPretty,
+            "y2j" => ConvertType::new(Yaml, Json, false),
+            "y2jp" => ConvertType::new(Yaml, Json, true),
+            "y2t" => ConvertType::new(Yaml, Toml, false),
+            "y2tp" => ConvertType::new(Yaml, Toml, true),
+            "j2y" => ConvertType::new(Json, Yaml, false),
+            "j2jp" => ConvertType::new(Json, Json, true),
+            "j2t" => ConvertType::new(Json, Toml, false),
+            "j2tp" => ConvertType::new(Json, Toml, true),
+            "t2y" => ConvertType::new(Toml, Yaml, false),
+            "t2j" => ConvertType::new(Toml, Json, false),
+            "t2jp" => ConvertType::new(Toml, Json, true),
+            "t2tp" => ConvertType::new(Toml, Toml, true),
             _ => panic!("Unknown convert type"),
         }
     }
