@@ -5,6 +5,7 @@
 - -.inf
 - abc
 - a: df
+  c: adsf
   b: 3
 - - a: [ 1, "a" ]
   - c: d
