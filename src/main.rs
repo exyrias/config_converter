@@ -52,18 +52,21 @@ mod converter {
         }
     }
 
+    #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum FileType {
         Yaml,
         Json,
         Toml,
     }
+
+    #[derive(Debug, Copy, Clone, PartialEq)]
     pub struct ConvertType {
-        from: FileType,
+        from: Option<FileType>,
         to: FileType,
         prettify: bool,
     }
     impl ConvertType {
-        pub fn new(from: FileType, to: FileType, prettify: bool) -> Self {
+        pub fn new(from: Option<FileType>, to: FileType, prettify: bool) -> Self {
             Self { from, to, prettify }
         }
     }
@@ -72,10 +75,24 @@ mod converter {
         cnvt_type: ConvertType,
         data: &String,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let v = match cnvt_type.from {
-            FileType::Yaml => load_yaml(&data)?,
-            FileType::Json => load_json(&data)?,
-            FileType::Toml => load_toml(&data)?,
+        let v = if let Some(type_from) = cnvt_type.from {
+            match type_from {
+                FileType::Yaml => load_yaml(&data)?,
+                FileType::Json => load_json(&data)?,
+                FileType::Toml => load_toml(&data)?,
+            }
+        } else {
+            let v = load_yaml(&data);
+            if v.is_ok() {
+                v.unwrap()
+            } else {
+                let v = load_json(&data);
+                if v.is_ok() {
+                    v.unwrap()
+                } else {
+                    load_toml(&data)?
+                }
+            }
         };
         let s = match (cnvt_type.to, cnvt_type.prettify) {
             (FileType::Yaml, _) => serde_yaml::to_string(&v)?,
@@ -120,7 +137,7 @@ mod program {
     fn build_cli() -> App<'static, 'static> {
         let convert_types = [
             "y2j", "y2jp", "y2t", "y2tp", "j2y", "j2jp", "j2t", "j2tp", "t2y", "t2j", "t2jp",
-            "t2tp",
+            "t2tp", "y", "j", "jp", "t", "tp",
         ];
         app_from_crate!()
             .setting(AppSettings::DeriveDisplayOrder)
@@ -134,18 +151,23 @@ mod program {
 
     fn convert_type(t: &str) -> ConvertType {
         match t {
-            "y2j" => ConvertType::new(Yaml, Json, false),
-            "y2jp" => ConvertType::new(Yaml, Json, true),
-            "y2t" => ConvertType::new(Yaml, Toml, false),
-            "y2tp" => ConvertType::new(Yaml, Toml, true),
-            "j2y" => ConvertType::new(Json, Yaml, false),
-            "j2jp" => ConvertType::new(Json, Json, true),
-            "j2t" => ConvertType::new(Json, Toml, false),
-            "j2tp" => ConvertType::new(Json, Toml, true),
-            "t2y" => ConvertType::new(Toml, Yaml, false),
-            "t2j" => ConvertType::new(Toml, Json, false),
-            "t2jp" => ConvertType::new(Toml, Json, true),
-            "t2tp" => ConvertType::new(Toml, Toml, true),
+            "y2j" => ConvertType::new(Some(Yaml), Json, false),
+            "y2jp" => ConvertType::new(Some(Yaml), Json, true),
+            "y2t" => ConvertType::new(Some(Yaml), Toml, false),
+            "y2tp" => ConvertType::new(Some(Yaml), Toml, true),
+            "j2y" => ConvertType::new(Some(Json), Yaml, false),
+            "j2jp" => ConvertType::new(Some(Json), Json, true),
+            "j2t" => ConvertType::new(Some(Json), Toml, false),
+            "j2tp" => ConvertType::new(Some(Json), Toml, true),
+            "t2y" => ConvertType::new(Some(Toml), Yaml, false),
+            "t2j" => ConvertType::new(Some(Toml), Json, false),
+            "t2jp" => ConvertType::new(Some(Toml), Json, true),
+            "t2tp" => ConvertType::new(Some(Toml), Toml, true),
+            "y" => ConvertType::new(None, Yaml, false),
+            "j" => ConvertType::new(None, Json, false),
+            "jp" => ConvertType::new(None, Json, true),
+            "t" => ConvertType::new(None, Toml, false),
+            "tp" => ConvertType::new(None, Toml, true),
             _ => panic!("Unknown convert type"),
         }
     }
