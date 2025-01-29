@@ -1,5 +1,51 @@
-#[macro_use]
-extern crate clap;
+
+mod cli {
+    use clap::{Parser, ValueEnum};
+    #[derive(Parser, Debug, Clone)]
+    pub struct Args {
+        pub convert_type: CmdConvertType,
+        pub input_file: Option<String>,
+    }
+
+    #[derive(ValueEnum, Debug, Clone, Copy)]
+    pub enum CmdConvertType {
+        #[clap(name = "yj")]
+        YamlToJson,
+        #[clap(name = "yjp")]
+        YamlToJsonPretty,
+        #[clap(name = "yt")]
+        YamlToToml,
+        #[clap(name = "ytp")]
+        YamlToTomlPretty,
+        #[clap(name = "jy")]
+        JsonToYaml,
+        #[clap(name = "jjp")]
+        JsonToJsonPretty,
+        #[clap(name = "jt")]
+        JsonToToml,
+        #[clap(name = "jtp")]
+        JsonToTomlPretty,
+        #[clap(name = "ty")]
+        TomlToYaml,
+        #[clap(name = "tj")]
+        TomlToJson,
+        #[clap(name = "tjp")]
+        TomlToJsonPretty,
+        #[clap(name = "ttp")]
+        TomlToTomlPretty,
+        #[clap(name = "y")]
+        Yaml,
+        #[clap(name = "j")]
+        Json,
+        #[clap(name = "jp")]
+        JsonPretty,
+        #[clap(name = "t")]
+        Toml,
+        #[clap(name = "tp")]
+        TomlPretty,
+    }
+
+}
 
 mod converter {
     extern crate serde;
@@ -130,63 +176,37 @@ mod program {
     }
 
     use crate::converter::*;
-    use clap::{App, AppSettings, Arg};
+    use crate::cli::*;
     use std::error::Error;
+    use clap::Parser;
     use FileType::*;
 
-    fn build_cli() -> App<'static, 'static> {
-        let convert_types = [
-            "y2j", "y2jp", "y2t", "y2tp", "j2y", "j2jp", "j2t", "j2tp", "t2y", "t2j", "t2jp",
-            "t2tp", "y", "j", "jp", "t", "tp",
-        ];
-        app_from_crate!()
-            .setting(AppSettings::DeriveDisplayOrder)
-            .arg(
-                Arg::with_name("CONVERT_TYPE")
-                    .possible_values(&convert_types)
-                    .required(true),
-            )
-            .arg_from_usage("[FILENAME]")
-    }
-
-    fn convert_type(t: &str) -> ConvertType {
+    fn convert_type(t: CmdConvertType) -> ConvertType {
         match t {
-            "y2j" => ConvertType::new(Some(Yaml), Json, false),
-            "y2jp" => ConvertType::new(Some(Yaml), Json, true),
-            "y2t" => ConvertType::new(Some(Yaml), Toml, false),
-            "y2tp" => ConvertType::new(Some(Yaml), Toml, true),
-            "j2y" => ConvertType::new(Some(Json), Yaml, false),
-            "j2jp" => ConvertType::new(Some(Json), Json, true),
-            "j2t" => ConvertType::new(Some(Json), Toml, false),
-            "j2tp" => ConvertType::new(Some(Json), Toml, true),
-            "t2y" => ConvertType::new(Some(Toml), Yaml, false),
-            "t2j" => ConvertType::new(Some(Toml), Json, false),
-            "t2jp" => ConvertType::new(Some(Toml), Json, true),
-            "t2tp" => ConvertType::new(Some(Toml), Toml, true),
-            "y" => ConvertType::new(None, Yaml, false),
-            "j" => ConvertType::new(None, Json, false),
-            "jp" => ConvertType::new(None, Json, true),
-            "t" => ConvertType::new(None, Toml, false),
-            "tp" => ConvertType::new(None, Toml, true),
-            _ => panic!("Unknown convert type"),
-        }
-    }
-
-    fn parse_args() -> Result<(ConvertType, Option<String>), Box<dyn Error>> {
-        let matches = build_cli().get_matches_safe()?;
-
-        let cnvt_type = convert_type(matches.value_of("CONVERT_TYPE").unwrap());
-
-        if let Some(filename) = matches.value_of("FILENAME") {
-            Ok((cnvt_type, Some(String::from(filename))))
-        } else {
-            Ok((cnvt_type, None))
+            CmdConvertType::YamlToJson => ConvertType::new(Some(Yaml), Json, false),
+            CmdConvertType::YamlToJsonPretty => ConvertType::new(Some(Yaml), Json, true),
+            CmdConvertType::YamlToToml => ConvertType::new(Some(Yaml), Toml, false),
+            CmdConvertType::YamlToTomlPretty => ConvertType::new(Some(Yaml), Toml, true),
+            CmdConvertType::JsonToYaml => ConvertType::new(Some(Json), Yaml, false),
+            CmdConvertType::JsonToJsonPretty => ConvertType::new(Some(Json), Json, true),
+            CmdConvertType::JsonToToml => ConvertType::new(Some(Json), Toml, false),
+            CmdConvertType::JsonToTomlPretty => ConvertType::new(Some(Json), Toml, true),
+            CmdConvertType::TomlToYaml => ConvertType::new(Some(Toml), Yaml, false),
+            CmdConvertType::TomlToJson => ConvertType::new(Some(Toml), Json, false),
+            CmdConvertType::TomlToJsonPretty => ConvertType::new(Some(Toml), Json, true),
+            CmdConvertType::TomlToTomlPretty => ConvertType::new(Some(Toml), Toml, true),
+            CmdConvertType::Yaml => ConvertType::new(None, Yaml, false),
+            CmdConvertType::Json => ConvertType::new(None, Json, false),
+            CmdConvertType::JsonPretty => ConvertType::new(None, Json, true),
+            CmdConvertType::Toml => ConvertType::new(None, Toml, false),
+            CmdConvertType::TomlPretty => ConvertType::new(None, Toml, true),
         }
     }
 
     fn convert() -> Result<String, Box<dyn Error>> {
-        let (cnvt_type, input_stream) = parse_args()?;
-        let mut input_stream = read_utils::input_selector(input_stream)?;
+        let args = Args::parse();
+        let cnvt_type = convert_type(args.convert_type);
+        let mut input_stream = read_utils::input_selector(args.input_file)?;
         let data = read_utils::read_stream(&mut input_stream)?;
         let s = convert_string(cnvt_type, &data)?;
         Ok(s)
