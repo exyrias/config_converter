@@ -3,6 +3,8 @@ name = "config_converter"
 version = "0.2.0"
 authors = ["exyrias <25100303+exyrias@users.noreply.github.com>"]
 edition = "2018"
+license = "MIT"
+description = "Converts configuration files between different formats."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
